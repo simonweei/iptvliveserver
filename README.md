@@ -30,7 +30,7 @@ Copy-Item .env.local .dev.vars
 npm run dev:cf
 ```
 
-`.dev.vars` 只供 Wrangler 本地开发，已被 Git 忽略。此模式使用 Wrangler 的本地 KV（`.wrangler/`），与上述文件模拟数据和线上数据分别独立。`wrangler.toml` 的全零 ID 仅供本地，部署前必须替换。
+`.dev.vars` 只供 Wrangler 本地开发，已被 Git 忽略。此模式通过命令行创建本地 `LIVE_KV` 绑定，使用 Wrangler 的本地 KV（`.wrangler/`），与上述文件模拟数据和线上数据分别独立。
 
 ```powershell
 npm test
@@ -50,7 +50,7 @@ npm run check:cf
    npx wrangler kv namespace create LIVE_KV
    ```
 
-2. 修改本目录 `wrangler.toml`：`name` 为你的 Pages 项目名称，`kv_namespaces` 的 `id` 为真实命名空间 ID。绑定名称保持 **LIVE_KV**，不能改成普通字符串环境变量。
+2. 在 Pages 项目设置的 Bindings 中添加 KV namespace 绑定，变量名填写 **LIVE_KV**，选择创建的命名空间。不能把 `LIVE_KV` 设置为普通字符串环境变量。
 3. 在 Cloudflare Pages 导入 Git 仓库。如果仓库包含上层 EdgeOne 版，**根目录选择 `cloudflare-kv-pages`**；如果只上传此目录内容，根目录为空。框架选择 None，构建命令 `npm run build`，输出目录 `dist`。
 4. 在 Pages 项目设置的 Variables and Secrets 中配置以下 **Secrets**（值不加外层引号），用于 Production：
 
@@ -59,7 +59,7 @@ npm run check:cf
    | `ADMIN_PASSWORD` | 自己设置的管理员密码，6～1024 个字符 |
    | `SESSION_SECRET` | 至少 32 字符随机密钥，推荐 setup 生成的 64 位十六进制值 |
 
-   可从本地 `setup` 生成的 `.env.local` 复制。登录和手动管理只需要以上两个 Secrets。`CRON_SECRET` 仅在使用下文的外部定时调用时配置。不要将这些值写入源码、Git 或 `wrangler.toml`。配置后重新部署。
+   可从本地 `setup` 生成的 `.env.local` 复制。登录和手动管理只需要以上两个 Secrets。`CRON_SECRET` 仅在使用下文的外部定时调用时配置。不要将这些值写入源码或 Git。配置后重新部署。
 5. 访问 `https://你的域名/api/session`，未登录应返回 **JSON 401**；未绑定 KV 或缺少密钥时返回 JSON 503。访问 `/admin/` 登录，添加直播源，创建订阅 `keting`，播放器地址为 `https://你的域名/sub/keting/playlist.m3u`。
 
 也可用 CLI：先创建 Pages 项目并设置 Secrets，再部署。
@@ -68,12 +68,12 @@ npm run check:cf
 npx wrangler pages project create iptv-manager
 npx wrangler pages secret put ADMIN_PASSWORD --project-name iptv-manager
 npx wrangler pages secret put SESSION_SECRET --project-name iptv-manager
-npm run deploy:pages
+npm run deploy:pages -- --project-name iptv-manager
 ```
 
-上述 `iptv-manager` 须与 `wrangler.toml` 的 `name` 一致。必须从本目录运行，Wrangler 才会同时上传 `dist` 和编译 `functions/`。不要在控制台只拖拽上传 `dist`，该方式不会部署 Functions。
+上述 `iptv-manager` 替换为实际 Pages 项目名，KV 绑定和 Secrets 在 Pages 控制台设置。必须从本目录运行，Wrangler 才会同时上传 `dist` 和编译 `functions/`。不要在控制台只拖拽上传 `dist`，该方式不会部署 Functions。线上兼容日期可在 Pages 的 Functions 设置中填写 `2026-10-01`。
 
-预览部署应使用单独的 KV 和密钥，避免测试修改生产数据。在启用 Preview 前，为配置文件添加 `[env.preview]` 下独立的 `[[env.preview.kv_namespaces]]` 绑定，并在 Pages 设置 Preview Secrets。不要把生产调度地址改为预览地址。
+预览部署应使用单独的 KV 和密钥，避免测试修改生产数据。在启用 Preview 前，在 Pages 控制台配置 Preview 环境的独立 `LIVE_KV` 绑定和 Secrets。不要把生产调度地址改为预览地址。
 
 ## 更新方式
 
@@ -109,7 +109,7 @@ Authorization: Bearer <CRON_SECRET>
 ## 官方参考
 
 - [Pages Functions 路由](https://developers.cloudflare.com/pages/functions/routing/)
-- [Pages 配置和 KV 绑定](https://developers.cloudflare.com/pages/functions/wrangler-configuration/)
+- [Pages Functions 绑定](https://developers.cloudflare.com/pages/functions/bindings/)
 - [Pages 本地开发](https://developers.cloudflare.com/pages/functions/local-development/)
 - [Pages Functions API](https://developers.cloudflare.com/pages/functions/api-reference/)
 - [KV 写入限制和最终一致性](https://developers.cloudflare.com/kv/api/write-key-value-pairs/)
