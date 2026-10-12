@@ -1,0 +1,17 @@
+{
+  "name": "cloudflare-iptv-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "setup": "node scripts/setup.mjs",
+    "dev": "node --env-file-if-exists=.env.local scripts/dev.mjs",
+    "dev:cf": "npm run build && wrangler pages dev",
+    "test": "node --test tests/*.test.mjs",
+    "check:cf": "npm run build && wrangler pages functions build --outdir .local/pages-build",
+    "deploy:pages": "npm run build && wrangler pages deploy dist"
+  },
+  "devDependencies": { "wrangler": "^4.0.0" }
+}

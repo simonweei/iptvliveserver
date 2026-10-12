@@ -1,0 +1,4 @@
+ADMIN_PASSWORD=
+SESSION_SECRET=
+# Optional: only needed for external scheduling.
+CRON_SECRET=
