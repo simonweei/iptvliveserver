@@ -41,6 +41,8 @@ npm run check:cf
 
 ## 部署 Pages 和 KV
 
+仓库包含已构建的 `dist/`，Pages 构建命令留空时也可直接部署当前静态页面。仍建议设置 `npm run build`，让后续前端修改自动生成最新输出。修改 `public/` 后，本地运行 `npm run build` 并把更新后的 `dist/` 一起提交。输出目录始终为 `dist`，`functions/` 随 Pages 项目独立编译。
+
 1. 创建 Cloudflare KV 命名空间（例如 `iptv-production`），记录其 ID。可在控制台操作，或登录后执行：
 
    ```powershell

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <title>直播源管理 · Stream Keeper</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <div id="login-view" class="login-layout">
+    <section class="login-intro"><span class="brand-mark">◉</span><p class="eyebrow">STREAM KEEPER</p><h1>让每一份直播列表<br>有序、持续更新。</h1><p>统一管理来源与订阅，把最新的频道列表<br>送到你的每一台设备。</p><div class="intro-tags"><span>格式校验</span><span>自动更新</span><span>订阅有效期</span></div></section>
+    <main class="login-card"><p class="eyebrow">管理控制台</p><h2>欢迎回来</h2><p class="muted">输入管理员密码，开始管理你的直播源。</p>
+      <form id="login-form"><label>管理员密码<input name="password" type="password" autocomplete="current-password" required placeholder="输入密码"></label><p id="login-error" class="error" role="alert"></p><button class="primary full" type="submit">登录管理页面 <span>→</span></button></form><p class="small muted">管理会话持续 8 小时</p>
+    </main>
+  </div>
+  <div id="app-view" class="app-layout" hidden>
+    <aside><a class="brand" href="/admin/"><span class="brand-mark">◉</span><span>直播源管理<small>STREAM KEEPER</small></span></a><p class="nav-label">工作空间</p><nav aria-label="管理导航"><button data-tab="sources" class="nav active">◫ <span>直播源</span></button><button data-tab="subscriptions" class="nav">↗ <span>订阅链接</span></button><button data-tab="logs" class="nav">◷ <span>更新记录</span></button></nav><div class="sidebar-foot"><span class="dot"></span> Cloudflare · KV 存储<p>列表校验通过后才会发布</p><button id="logout" class="text-button">退出登录 ↗</button></div></aside>
+    <main class="workspace"><header><div><p class="eyebrow">你的直播工作空间</p><h1 id="page-title">直播源</h1><p id="page-description" class="muted">管理来源网址和更新节奏，让订阅始终保持最新。</p></div><div class="header-actions"><button id="reload">↻ 刷新</button><button id="create" class="primary">＋ 添加直播源</button></div></header>
+      <section id="stats" class="stats" aria-label="数据概览"></section><div id="notice" class="notice" role="status" hidden></div>
+      <section id="content" aria-live="polite"></section>
+      <footer>时间以北京时间显示 · 配置变更通常约 60 秒传播，部分节点可能更久</footer>
+    </main>
+  </div>
+  <dialog id="editor"><form id="editor-form"><div class="dialog-head"><div><p class="eyebrow" id="dialog-eyebrow">管理直播源</p><h2 id="dialog-title"></h2></div><button type="button" id="close-editor" class="icon-button" aria-label="关闭">×</button></div><div id="fields"></div><p id="form-error" class="error" role="alert"></p><div class="dialog-actions"><button type="button" id="cancel-editor">取消</button><button class="primary" type="submit" id="save">保存</button></div></form></dialog>
+  <dialog id="confirmation"><form method="dialog"><h2 id="confirm-title"></h2><p id="confirm-text" class="muted"></p><div class="dialog-actions"><button value="cancel">取消</button><button value="ok" class="danger">确认</button></div></form></dialog>
+</body></html>

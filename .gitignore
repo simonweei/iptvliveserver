@@ -1,5 +1,6 @@
 node_modules/
-dist/
+# Keep prebuilt assets available when Pages skips the build command.
+!dist/
 .env*
 !.env.example
 .dev.vars*
