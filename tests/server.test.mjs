@@ -2,7 +2,7 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { handle } from '../lib/server.js';
 import { passwordHash, verifyPassword, checkSecrets } from '../lib/auth.js';
-import { validateM3U, cleanM3U, fetchPlaylist, sourceURL, MAX_PLAYLIST_BYTES } from '../lib/m3u.js';
+import { validateM3U, cleanM3U, fetchPlaylist, sourceURL, parsePlaylist, playlistChannels, exportPlaylist, MAX_PLAYLIST_BYTES } from '../lib/m3u.js';
 
 const SAMPLE = '#EXTM3U\n#EXTINF:-1 tvg-id="cctv1" group-title="央视",CCTV-1\n#EXTVLCOPT:http-user-agent=Player\nhttps://stream.example.com/live.m3u8\n';
 const SECOND = SAMPLE.replace('CCTV-1', 'CCTV-2');
@@ -223,4 +223,94 @@ test('环境变量密码直接登录，优先于旧哈希；兼容旧配置；�
   const c = client(); await c.login(); const state = await c.call('/api/state');
   assert.equal(state.text.includes(env.ADMIN_PASSWORD), false);
   assert.equal(state.text.includes(env.SESSION_SECRET), false);
+});
+
+
+test('多格式识别、TXT 分组及含逗号地址、JSON 元数据与坏条目清理', () => {
+  const txt = '\uFEFF央视频道,#genre#\r\nCCTV-1,https://stream.example.com/live?a=1,2\r\n错误,not-url\r\n,#genre#\r\n备用,udp://@239.1.1.1:1234';
+  const parsed = parsePlaylist(txt);
+  assert.equal(parsed.format, 'txt'); assert.equal(parsed.channels, 2); assert.equal(parsed.removed, 1);
+  const channels = playlistChannels(parsed.text);
+  assert.equal(channels[0].group, '央视频道'); assert.equal(channels[0].url, 'https://stream.example.com/live?a=1,2');
+  assert.equal(channels[1].group, '');
+  assert.deepEqual(playlistChannels(parsePlaylist(exportPlaylist(parsed.text, 'txt')).text), channels);
+  const channel = { name: '频道,高清', url: 'https://stream.example.com/a', group: '新闻,"高清"&综合', logo: 'https://example.com/logo?a=1&b=2', tvgId: 'test-id' };
+  for (const data of [[channel, null, { name: '非法', url: 'file:///a' }, { name: '换行\n注入', url: channel.url }], { channels: [channel] }]) {
+    const json = parsePlaylist(JSON.stringify(data));
+    assert.equal(json.format, 'json'); assert.equal(json.channels, 1);
+    assert.deepEqual(JSON.parse(exportPlaylist(json.text, 'json')).channels, [channel]);
+    assert.deepEqual(playlistChannels(parsePlaylist(exportPlaylist(json.text, 'json')).text), [channel]);
+  }
+  assert.match(exportPlaylist(parsePlaylist(JSON.stringify([channel])).text, 'txt'), /频道，高清/);
+  assert.match(exportPlaylist(SAMPLE, 'm3u'), /#EXTVLCOPT/);
+  assert.equal(parsePlaylist(SAMPLE).format, 'm3u');
+  for (const [text, format] of [['<html>error</html>', 'auto'], ['{"channels":', 'json'], ['{"data":[]}', 'json'], ['[]', 'json'], ['频道,not-url', 'txt'], [SAMPLE, 'json'], [SAMPLE, 'xml']]) assert.throws(() => parsePlaylist(text, format));
+  assert.throws(() => parsePlaylist('x'.repeat(MAX_PLAYLIST_BYTES + 1), 'txt'), /4 MB/);
+  assert.throws(() => validateM3U('#EXTM3U\n#EXTINF:-1 group-title="坏引号,频道\nhttps://example.com/a'), /引号/);
+});
+
+test('三格式订阅共用频道、禁用与到期控制，HEAD、改名和回滚均生效', async () => {
+  const c = client(); await c.login();
+  c.setUpstream('央视,#genre#\nCCTV-1,https://stream.example.com/live\n坏频道,not-url');
+  const created = await c.call('/api/sources', 'POST', { id: 'ipv4', name: '多格式', url: 'https://example.com/api', intervalDays: 1, format: 'auto' });
+  assert.equal(created.json.refresh.ok, true); assert.equal(created.json.refresh.removed, 1);
+  let sub = (await c.subscription()).json.subscription;
+  const original = playlistChannels((await c.call('/sub/keting/playlist.m3u')).text);
+  for (const format of ['m3u', 'txt', 'json']) {
+    const url = '/sub/keting/playlist.' + format;
+    const result = await c.call(url); assert.equal(result.status, 200);
+    assert.deepEqual(playlistChannels(parsePlaylist(result.text, format).text), original);
+    assert.match(result.headers.get('content-type'), format === 'json' ? /application\/json/ : /text\/plain/);
+    assert.equal(result.headers.get('cache-control'), 'no-store');
+    const head = await c.call(url, 'HEAD'); assert.equal(head.status, 200); assert.equal(head.text, '');
+  }
+  assert.equal((await c.call('/sub/keting/playlist.xml')).status, 404);
+  c.setUpstream(JSON.stringify({ channels: [{ name: '新频道', url: 'https://stream.example.com/new', logo: 'https://example.com/logo' }] }));
+  assert.equal((await c.call('/api/sources/ipv4/refresh', 'POST')).json.ok, true);
+  assert.equal((await c.call('/sub/keting/playlist.json')).json.channels[0].name, '新频道');
+  c.setUpstream('{"channels":'); assert.equal((await c.call('/api/sources/ipv4/refresh', 'POST')).json.ok, false);
+  assert.equal((await c.call('/sub/keting/playlist.json')).json.channels[0].name, '新频道');
+  assert.equal((await c.call('/api/sources/ipv4/rollback', 'POST')).json.ok, true);
+  assert.deepEqual((await c.call('/sub/keting/playlist.json')).json.channels, original);
+  await c.call('/api/subscriptions/keting', 'PUT', { ...sub, enabled: false });
+  for (const format of ['m3u', 'txt', 'json']) assert.equal((await c.call('/sub/keting/playlist.' + format)).status, 403);
+  sub = (await c.call('/api/subscriptions/keting', 'PUT', { ...sub, id: 'room', enabled: true })).json.subscription;
+  for (const format of ['m3u', 'txt', 'json']) assert.equal((await c.call('/sub/keting/playlist.' + format)).status, 404);
+  c.setTime(sub.expiresAt);
+  for (const format of ['m3u', 'txt', 'json']) assert.equal((await c.call('/sub/room/playlist.' + format)).status, 410);
+  await c.login();
+  await c.call('/api/subscriptions/room/renew', 'POST', { days: 30 });
+  for (const format of ['m3u', 'txt', 'json']) assert.equal((await c.call('/sub/room/playlist.' + format)).status, 200);
+});
+
+test('来源格式配置在创建、编辑及定时更新中生效，拒绝未知格式', async () => {
+  const c = client(); await c.login();
+  const data = { id: 'ipv4', name: '来源', url: 'https://example.com/list', intervalDays: 1 };
+  assert.equal((await c.call('/api/sources', 'POST', { ...data, format: 'xml' })).status, 400);
+  const source = (await c.call('/api/sources', 'POST', { ...data, format: 'txt' })).json.source;
+  assert.equal((await c.call('/api/state')).json.sources[0].format, 'txt');
+  assert.equal((await c.call('/api/sources/ipv4', 'PUT', { ...source, enabled: true, format: 'xml' })).status, 400);
+  await c.call('/api/sources/ipv4', 'PUT', { ...source, enabled: true, format: 'json' });
+  c.setUpstream(JSON.stringify([{ name: '频道', url: 'https://stream.example.com/a' }]));
+  c.setTime(START + 86400000);
+  const cron = await c.call('/api/cron/refresh', 'POST', undefined, { Authorization: 'Bearer ' + env.CRON_SECRET });
+  assert.equal(cron.json.results[0].ok, true);
+  await c.login();
+  const status = (await c.call('/api/state')).json.sources[0].status;
+  assert.equal(status.format, 'json'); assert.match(status.history[0].message, /JSON/);
+});
+
+
+test('TVBox JSON 仅解析 lives 明文列表引用；相对地址、安全边界与失败提示', async () => {
+ const urls=[];
+ const config={spider:'./spider.jar',sites:[{api:'csp_XBPQ'}],lives:[{name:'直播',url:'./lives/live.txt'}]};
+ const fetcher=async url=>{urls.push(url);return new Response(url.endsWith('api.json')?JSON.stringify(config):'央视,#genre#\nCCTV1,https://stream.example.com/1');};
+ const parsed=await fetchPlaylist('https://example.com/tv/api.json',fetcher);
+ assert.equal(parsed.format,'json');assert.equal(parsed.channels,1);
+ assert.deepEqual(urls,['https://example.com/tv/api.json','https://example.com/tv/lives/live.txt']);
+ await assert.rejects(fetchPlaylist('https://example.com/api.json',async url=>new Response(url.endsWith('api.json')?JSON.stringify(config):'59EBFC8A'.repeat(100))),/加密内容/);
+ await assert.rejects(fetchPlaylist('https://example.com/api.json',async()=>new Response(JSON.stringify({lives:[{url:'http://127.0.0.1/list'}]}))),/内网/);
+ await assert.rejects(fetchPlaylist('https://example.com/api.json',async()=>new Response(JSON.stringify({lives:[]}))),/1～8/);
+ await assert.rejects(fetchPlaylist('https://example.com/api.json',async()=>new Response(JSON.stringify(config))),/嵌套/);
+ await assert.rejects(fetchPlaylist('https://example.com/api.json',async url=>new Response(url.endsWith('api.json')?JSON.stringify(config):'x'.repeat(MAX_PLAYLIST_BYTES))),/4 MB/);
 });

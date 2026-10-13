@@ -113,3 +113,41 @@ Authorization: Bearer <CRON_SECRET>
 - [Pages 本地开发](https://developers.cloudflare.com/pages/functions/local-development/)
 - [Pages Functions API](https://developers.cloudflare.com/pages/functions/api-reference/)
 - [KV 写入限制和最终一致性](https://developers.cloudflare.com/kv/api/write-key-value-pairs/)
+
+## 多格式来源与订阅
+
+添加来源时可选自动识别、M3U、TXT、JSON，按响应内容识别，与网址后缀无关。来源须为 UTF-8、最大 4 MB。统一转换为 M3U 保存，每个订阅自动提供三条链接：
+
+- `/sub/keting/playlist.m3u`：保留 M3U 扩展元数据。
+- `/sub/keting/playlist.txt`：频道名和播放地址，使用 `分组名,#genre#` 表示分组。
+- `/sub/keting/playlist.json`：`{ "channels": [...] }`，包含频道名称、地址、分组、台标和频道 ID。
+
+三条链接共用订阅的有效期、启用状态和所绑定来源；管理页面可分别复制。更新、回滚后同时生效。
+
+TXT 示例：
+
+```text
+央视,#genre#
+CCTV-1,https://stream.example.com/cctv1.m3u8
+CCTV-2,https://stream.example.com/cctv2.m3u8
+```
+
+JSON 支持直接频道数组或以下结构，name 和 url 必填，group、logo、tvgId 可选：
+
+```json
+{
+  "channels": [
+    {
+      "name": "CCTV-1",
+      "url": "https://stream.example.com/cctv1.m3u8",
+      "group": "央视",
+      "logo": "https://example.com/cctv1.png",
+      "tvgId": "cctv1"
+    }
+  ]
+}
+```
+
+过滤无效频道并记录数量；格式无法识别、JSON 结构不支持、内容超限或没有有效频道时保留旧列表。不同 JSON 接口需要按此结构提供数据。TXT 无法表示台标、频道 ID 和播放器扩展参数；名称与分组中的英文逗号在 TXT 输出时转换为中文逗号。JSON 输出保留五个标准字段，不包含 M3U 的其他扩展参数。保留同名频道的不同播放地址，不自动去重，不检测实际播放可用性。
+
+TVBox JSON 配置可通过 lives[].url 引用明文 M3U/TXT/JSON 直播列表，相对网址以配置地址为基准解析。最多 8 个引用、仅一层；全程共用 15 秒超时和 4 MB 下载上限。不会执行 spider/JAR 或解析 sites 点播站点；加密列表需先提供明文或解密方式。

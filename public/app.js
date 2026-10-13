@@ -3,7 +3,9 @@ const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, character =>
 let csrf = '', state = { sources: [], subscriptions: [] }, tab = 'sources', editing = null, clockOffset = 0;
 const now = () => Date.now() + clockOffset;
 const time = value => value ? new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value)) : '—';
-const subURL = id => `${location.origin}/sub/${id}/playlist.m3u`;
+const subURL = (id, format = 'm3u') => `${location.origin}/sub/${id}/playlist.${format}`;
+const formats = ['m3u', 'txt', 'json'];
+const formatLabel = value => value === 'auto' || !value ? '自动识别' : value.toUpperCase();
 const badge = (text, status) => `<span class="badge ${status}">${text}</span>`;
 const button = (action, id, label, style = '') => `<button data-action="${action}" data-id="${escapeHTML(id)}" class="${style}">${label}</button>`;
 async function api(path, method = 'GET', data) {
@@ -31,17 +33,17 @@ function render() {
 }
 function empty(title, description, action) { return `<div class="empty"><span class="empty-icon">◫</span><h2>${title}</h2><p class="muted">${description}</p>${action ? button(action, '', '＋ 开始创建', 'primary') : ''}</div>`; }
 function renderSources() {
-  if (!state.sources.length) { $('#content').innerHTML = empty('添加你的第一个直播源', '填写 M3U 来源网址，校验通过后即可创建订阅。', 'create-source'); return; }
+  if (!state.sources.length) { $('#content').innerHTML = empty('添加你的第一个直播源', '填写 M3U、TXT 或 JSON 来源网址，校验通过后即可创建订阅。', 'create-source'); return; }
   $('#content').innerHTML = `<div class="section-bar"><h2>全部来源</h2><span>共 ${state.sources.length} 个来源</span></div><div class="cards">${state.sources.map(source => {
     const status = source.status;
-    return `<article class="source-card"><div class="card-heading"><div><h3>${escapeHTML(source.name)}</h3></div>${!source.enabled ? badge('自动更新已停用', 'off') : status?.lastError ? badge('更新异常', 'bad') : status?.lastSuccessAt ? badge('已保存', 'good') : badge('暂无列表', 'off')}</div><div class="url">${escapeHTML(source.url)}</div><dl class="metadata"><div><dt>更新间隔</dt><dd>${Number(source.intervalDays.toFixed(3))} 天</dd></div><div><dt>频道数量</dt><dd>${status?.channels ?? '—'}</dd></div><div><dt>最近成功</dt><dd>${time(status?.lastSuccessAt)}</dd></div><div><dt>下次更新</dt><dd>${source.enabled ? source.nextUpdateAt <= now() ? '等待调度' : time(source.nextUpdateAt) : '已停用'}</dd></div></dl>${status?.lastError ? `<p class="error">${escapeHTML(status.lastError)}</p>` : ''}<div class="card-actions">${button('refresh', source.id, '↻ 立即更新')}${button('edit-source', source.id, '编辑')}${button('rollback', source.id, '回滚')}${button('delete-source', source.id, '删除', 'text-button')}</div></article>`;
+    return `<article class="source-card"><div class="card-heading"><div><h3>${escapeHTML(source.name)}</h3></div>${!source.enabled ? badge('自动更新已停用', 'off') : status?.lastError ? badge('更新异常', 'bad') : status?.lastSuccessAt ? badge('已保存', 'good') : badge('暂无列表', 'off')}</div><div class="url">${escapeHTML(source.url)}</div><dl class="metadata"><div><dt>来源格式</dt><dd>${formatLabel(source.format)}${status?.format ? ` · ${formatLabel(status.format)}` : ''}</dd></div><div><dt>更新间隔</dt><dd>${Number(source.intervalDays.toFixed(3))} 天</dd></div><div><dt>频道数量</dt><dd>${status?.channels ?? '—'}</dd></div><div><dt>最近成功</dt><dd>${time(status?.lastSuccessAt)}</dd></div><div><dt>下次更新</dt><dd>${source.enabled ? source.nextUpdateAt <= now() ? '等待调度' : time(source.nextUpdateAt) : '已停用'}</dd></div></dl>${status?.lastError ? `<p class="error">${escapeHTML(status.lastError)}</p>` : ''}<div class="card-actions">${button('refresh', source.id, '↻ 立即更新')}${button('edit-source', source.id, '编辑')}${button('rollback', source.id, '回滚')}${button('delete-source', source.id, '删除', 'text-button')}</div></article>`;
   }).join('')}</div>`;
 }
 function renderSubscriptions() {
   if (!state.subscriptions.length) { $('#content').innerHTML = empty('为你的设备创建订阅', '使用 keting、bedroom 等标识，生成固定的客户端链接。', 'create-subscription'); return; }
   $('#content').innerHTML = `<div class="section-bar"><h2>全部订阅</h2><span>客户端数量不限</span></div><div class="table-wrap"><table><thead><tr><th>备注 / 链接</th><th>直播源</th><th>有效期</th><th>状态</th><th>操作</th></tr></thead><tbody>${state.subscriptions.map(sub => {
     const source = state.sources.find(source => source.id === sub.sourceId);
-    return `<tr><td><strong>${escapeHTML(sub.name)}</strong><span class="link">${escapeHTML(subURL(sub.id))}</span></td><td>${escapeHTML(source?.name || sub.sourceId)}</td><td>${sub.expiresAt === null ? '永久' : time(sub.expiresAt)}<br><span class="hint">创建 ${time(sub.createdAt)}</span></td><td>${!sub.enabled ? badge('已禁用', 'off') : sub.expiresAt !== null && sub.expiresAt <= now() ? badge('已到期', 'bad') : badge('有效', 'good')}</td><td><div class="row-actions">${button('copy', sub.id, '复制链接')}${button('edit-subscription', sub.id, '编辑')}${button('renew', sub.id, '续期')}${button('toggle', sub.id, sub.enabled ? '禁用' : '启用')}${button('delete-subscription', sub.id, '删除', 'danger')}</div></td></tr>`;
+    return `<tr><td><strong>${escapeHTML(sub.name)}</strong>${formats.map(format => `<div class="subscription-link"><span class="hint">${format.toUpperCase()}</span><a class="link" href="${escapeHTML(subURL(sub.id, format))}" target="_blank" rel="noopener noreferrer">${escapeHTML(subURL(sub.id, format))}</a><button data-action="copy" data-id="${escapeHTML(sub.id)}" data-format="${format}">复制 ${format.toUpperCase()}</button></div>`).join('')}</td><td>${escapeHTML(source?.name || sub.sourceId)}</td><td>${sub.expiresAt === null ? '永久' : time(sub.expiresAt)}<br><span class="hint">创建 ${time(sub.createdAt)}</span></td><td>${!sub.enabled ? badge('已禁用', 'off') : sub.expiresAt !== null && sub.expiresAt <= now() ? badge('已到期', 'bad') : badge('有效', 'good')}</td><td><div class="row-actions">${button('edit-subscription', sub.id, '编辑')}${button('renew', sub.id, '续期')}${button('toggle', sub.id, sub.enabled ? '禁用' : '启用')}${button('delete-subscription', sub.id, '删除', 'danger')}</div></td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 function renderLogs() {
@@ -59,9 +61,9 @@ function openEditor(kind, id) {
   $('#dialog-eyebrow').textContent = kind === 'source' ? '直播来源' : '客户端订阅';
   $('#dialog-title').textContent = kind === 'renew' ? '续订有效期' : `${record ? '编辑' : '创建'}${kind === 'source' ? '直播源' : '订阅'}`;
   if (kind === 'source') {
-    $('#fields').innerHTML = input('名称', 'name', record?.name, 'required maxlength="100" placeholder="例如：IPv4 直播源"') + input('来源网址', 'url', record?.url, 'required type="url" placeholder="https://example.com/playlist.m3u"', '保存时立即拉取，仅发布有效频道，自动删除停用和错误条目。') + input('更新间隔（天）', 'intervalDays', Math.max(1, Math.ceil(record?.intervalDays || 1)), 'required type="number" min="1" max="3650" step="1"', '1 = 每天，7 = 每周，30 = 每 30 天。自动更新需外部定时服务调用接口；仅部署 Pages 时请手动更新。旧版分钟配置继续按原间隔运行，重新保存时改为整数天。') + (record ? `<label class="check-label"><input name="enabled" type="checkbox" ${record.enabled ? 'checked' : ''}>启用自动更新</label><p class="hint">修改来源网址后，点击「立即更新」发布新内容；停用自动更新不影响订阅读取已保存列表。</p>` : '');
+    $('#fields').innerHTML = input('名称', 'name', record?.name, 'required maxlength="100" placeholder="例如：IPv4 直播源"') + input('来源网址', 'url', record?.url, 'required type="url" placeholder="https://example.com/playlist.m3u"', '保存时立即拉取，仅发布有效频道，自动删除停用和错误条目。') + `<label>来源格式<select name="format">${['auto', ...formats].map(format => `<option value="${format}" ${(record?.format || 'auto') === format ? 'selected' : ''}>${formatLabel(format)}</option>`).join('')}</select><span class="hint">自动按内容识别。TXT 支持分组名,#genre# 与频道名,地址；JSON 支持频道数组或 {channels:[...]}，频道字段为 name、url，可选 group、logo、tvgId。</span></label>` + input('更新间隔（天）', 'intervalDays', Math.max(1, Math.ceil(record?.intervalDays || 1)), 'required type="number" min="1" max="3650" step="1"', '1 = 每天，7 = 每周，30 = 每 30 天。自动更新需外部定时服务调用接口；仅部署 Pages 时请手动更新。旧版分钟配置继续按原间隔运行，重新保存时改为整数天。') + (record ? `<label class="check-label"><input name="enabled" type="checkbox" ${record.enabled ? 'checked' : ''}>启用自动更新</label><p class="hint">修改来源网址后，点击「立即更新」发布新内容；停用自动更新不影响订阅读取已保存列表。</p>` : '');
   } else if (kind === 'renew') $('#fields').innerHTML = `<p class="muted">${escapeHTML(record.name)} · 当前到期：${record.expiresAt === null ? '永久' : time(record.expiresAt)}</p>` + daySelect('追加有效期', record.expiresAt === null ? 0 : 30);
-  else $('#fields').innerHTML = input('备注', 'name', record?.name, 'required maxlength="100" placeholder="例如：客厅电视"') + input('订阅标识', 'id', record?.id, 'required pattern="[a-zA-Z0-9_-]{1,64}" maxlength="64" placeholder="例如：keting"', '统一转为小写。修改标识后，旧链接失效。') + sourceSelect(record?.sourceId) + (record ? `<label class="check-label"><input type="checkbox" name="enabled" ${record.enabled ? 'checked' : ''}>启用订阅</label><p class="hint">编辑不改变原有效期。需要延长时请使用「续期」。</p>` : daySelect()) + '<p class="hint">订阅客户端数量不限。知道链接的人均可拉取列表。</p>';
+  else $('#fields').innerHTML = input('备注', 'name', record?.name, 'required maxlength="100" placeholder="例如：客厅电视"') + input('订阅标识', 'id', record?.id, 'required pattern="[a-zA-Z0-9_-]{1,64}" maxlength="64" placeholder="例如：keting"', '统一转为小写。修改标识后，旧链接失效。') + sourceSelect(record?.sourceId) + (record ? `<label class="check-label"><input type="checkbox" name="enabled" ${record.enabled ? 'checked' : ''}>启用订阅</label><p class="hint">编辑不改变原有效期。需要延长时请使用「续期」。</p>` : daySelect()) + '<p class="hint">创建后同时提供 M3U、TXT、JSON 三条链接，共用有效期与启用状态。订阅客户端数量不限。知道链接的人均可拉取列表。</p>';
   $('#editor').showModal();
 }
 async function confirmAction(title, description) {
@@ -95,14 +97,14 @@ $('#reload').addEventListener('click', async () => { try { await load(); notice(
 $('#logout').addEventListener('click', async () => { try { await api('/logout', 'POST'); showLogin(); } catch (error) { notice(error.message, true); } });
 $('#content').addEventListener('click', async event => {
   const node = event.target.closest('[data-action]'); if (!node) return;
-  const { action, id } = node.dataset; node.disabled = true;
+  const { action, id, format = 'm3u' } = node.dataset; node.disabled = true;
   try {
     if (action.startsWith('create-')) { openEditor(action.endsWith('source') ? 'source' : 'subscription'); return; }
     if (action.startsWith('edit-')) { openEditor(action.endsWith('source') ? 'source' : 'subscription', id); return; }
     if (action === 'renew') { openEditor('renew', id); return; }
     if (action === 'copy') {
-      if (navigator.clipboard) { await navigator.clipboard.writeText(subURL(id)); notice('订阅链接已复制。'); }
-      else notice(`请复制此链接：${subURL(id)}`);
+      if (navigator.clipboard) { await navigator.clipboard.writeText(subURL(id, format)); notice(`${format.toUpperCase()} 订阅链接已复制。`); }
+      else notice(`请复制此链接：${subURL(id, format)}`);
       return;
     }
     if (action.startsWith('delete-')) {
